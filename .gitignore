@@ -1,0 +1,17 @@
+# STM32CubeIDE
+.metadata/
+.settings/
+Startup/
+Debug/
+Drivers/
+.cproject
+.mxproject
+.project
+*.ld
+*.launch
+*.ioc
+
+# C++
+build/
+install/
+log/
