@@ -112,8 +112,8 @@ int main(void)
 	VL6180x_RangeData_t range;
 	VL6180x_RangePollMeasurement(myDev, &range);
 	uint8_t buf[2];
-	buf[0] = range.range_mm & 0x000F;
-	buf[1] = (range.range_mm & 0x00F0) >> 8;
+	buf[0] = range.range_mm & 0x00FF;
+	buf[1] = (range.range_mm & 0xFF00) >> 8;
 	if(range.errorStatus == 0)
 	{
 	    HAL_UART_Transmit(&huart2, buf, 2, 10);
