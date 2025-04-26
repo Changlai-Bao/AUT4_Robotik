@@ -23,3 +23,12 @@ colcon build
 source install/setup.bash
 ros2 run st_vl6180 st_vl6180_node
 ```
+
+```bash
+# Für Versuch 5
+cd Versuch_5/ros2_ws
+colcon build
+source install/setup.bash
+ros2 run xnucleo_iks01a3 xnucleo_iks01a3_node # Temperatur übertragen
+ros2 topic echo /imu/data_raw # in neuer Terminal öffnen, sensor_msgs/msg/Imu übertragen
+```
