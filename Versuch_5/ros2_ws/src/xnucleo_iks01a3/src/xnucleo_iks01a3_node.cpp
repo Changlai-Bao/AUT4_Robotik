@@ -24,7 +24,7 @@ public:
     _publisher = this->create_publisher<sensor_msgs::msg::Imu>("imu/data_raw", 1);
     _serial = new SerialPort("/dev/ttyACM0", B115200);
     _serial->flush();
-    _timer = this->create_wall_timer(20ms, std::bind(&XNucleoIKS01A3Node::timer_callback, this));
+    _timer = this->create_wall_timer(8ms, std::bind(&XNucleoIKS01A3Node::timer_callback, this));
   }
 
 private:
