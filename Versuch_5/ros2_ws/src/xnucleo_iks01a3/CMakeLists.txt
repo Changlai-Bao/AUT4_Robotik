@@ -11,12 +11,17 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 add_executable(xnucleo_iks01a3_node src/xnucleo_iks01a3_node.cpp src/SerialPort.cpp)
 ament_target_dependencies(xnucleo_iks01a3_node rclcpp sensor_msgs)
 
+add_executable(xnucleo_iks01a3_fusion_node src/xnucleo_iks01a3_fusion_node.cpp src/Quaternion.cpp src/Vector3.cpp)
+ament_target_dependencies(xnucleo_iks01a3_fusion_node rclcpp sensor_msgs geometry_msgs)
+
 install(TARGETS
   xnucleo_iks01a3_node
+  xnucleo_iks01a3_fusion_node
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
