@@ -25,10 +25,10 @@ public:
         _calibrationSamples(100),
         _cnt(0),
         _isFirstMeasurement(true),
-        _alpha(0.1f) // Kann als Parameter konfiguriert werden
+        _alpha(0.03f) // Kann als Parameter konfiguriert werden
   {
     // Parameter für Alpha (Gewichtungsfaktor) deklarieren
-    this->declare_parameter<float>("alpha", 0.1f);
+    this->declare_parameter<float>("alpha", 0.03f);
     _alpha = this->get_parameter("alpha").as_double();
 
     // Publisher erstellen
