@@ -22,28 +22,29 @@ for i=1:trials
 	% 2 Zufallszahlen im gültigen Wertebereich suchen
 	idx1 = round(rand * (vals-1)+0.5);
 	idx2 = round(rand * (vals-1)+0.5);
-	
+
 	% Sicherstellen, dass nicht gleiche Indizes gewählt wurden
 	if idx1 == idx2
 		continue
 	end
-	
+
 	% Sample set
 	x = [data(idx1,1), data(idx2, 1)]
 	y = [data(idx1,2), data(idx2, 2)]
-	
+
 	% Modellparameter bestimmen
 
-	
+
 	% Consensus set finden und bewerten
 
-		
+
 	% Beste Übereinstimmung merken
 
-end;
+end
 
 % Beste Übereinstimmung ausgeben
 
 % Plotte Messwerte
-clf;	
+clf;
 plot(data(:,1),data(:,2), 'x');
+

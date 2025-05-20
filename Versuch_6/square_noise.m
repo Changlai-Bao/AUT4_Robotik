@@ -46,3 +46,4 @@ title('Rotated Square Points with Noise and 50% Outliers');
 xlabel('X');
 ylabel('Y');
 axis equal;
+
