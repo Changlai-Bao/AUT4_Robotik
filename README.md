@@ -76,5 +76,6 @@ source install/setup.bash
 ros2 run ohm_mecanum_sim ohm_mecanum_sim_node
 
 # In neuem Terminalfenster öffnen, wall_follower starten
+source install/setup.bash
 ros2 run ohm_reactive_tutorial wall_follower
 ```
