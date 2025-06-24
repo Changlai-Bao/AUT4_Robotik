@@ -51,7 +51,7 @@ private:
     std::deque<float> angle_history_;
     static const size_t ANGLE_FILTER_SIZE = 5;
 
-    // Konfigurierbare Parameter
+    // Konfigurierbare Parameter für Geschwindigkeitsoptimierung
     const float DESIRED_WALL_DISTANCE = 1.3f;     // Gewünschter Wandabstand
     const float DEADBAND_THRESHOLD = 0.05f;       // Totband für kleine Korrekturen
     const float MAX_INTEGRAL = 0.8f;              // Begrenzung des I-Anteils
@@ -61,8 +61,19 @@ private:
     const float KI = 0.2f;                        // Reduzierter I-Anteil
     const float KD = 0.1f;                        // Kleiner D-Anteil für Dämpfung
 
+    // Geschwindigkeitsparameter für schnellere Navigation
+    const float MAX_LINEAR_SPEED = 1.0f;          // Maximale Lineargeschwindigkeit
+    const float HIGH_SPEED = 0.8f;                // Hohe Geschwindigkeit bei geringer Krümmung
+    const float MEDIUM_SPEED = 0.6f;              // Mittlere Geschwindigkeit bei normaler Navigation
+    const float LOW_SPEED = 0.3f;                 // Niedrige Geschwindigkeit bei scharfen Kurven
+    const float EMERGENCY_SPEED = 0.1f;           // Notfallgeschwindigkeit
+    
+    // Adaptive Geschwindigkeitssteuerung
+    const float SPEED_ADAPTATION_FACTOR = 0.7f;   // Faktor für Geschwindigkeitsanpassung
+    const float CORNER_DETECTION_THRESHOLD = 0.3f; // Schwellwert für Eckenerkennung
+
 public:
-    StabilizedWallFollowNode() : Node("wall_follow_node")
+    StabilizedWallFollowNode() : Node("stabilized_wall_follow_node")
     {
         // Subscriber für Lidar-Daten
         lidar_subscriber_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
@@ -150,8 +161,88 @@ private:
     }
 
     /**
-     * @brief Berechnet Wanddistanz
+     * @brief Intelligente Geschwindigkeitsberechnung basierend auf Navigationszustand
      */
+    float calculateAdaptiveSpeed(float angular_velocity, float wall_distance, 
+                                const std::vector<float> &ranges,
+                                float angle_min, float angle_increment)
+    {
+        // 1. Grundgeschwindigkeit basierend auf Lenkbewegung
+        float base_speed = HIGH_SPEED;
+        float angular_factor = std::abs(angular_velocity);
+        
+        if (angular_factor > 0.5f)
+        {
+            base_speed = LOW_SPEED;  // Scharfe Kurve
+        }
+        else if (angular_factor > 0.2f)
+        {
+            base_speed = MEDIUM_SPEED;  // Normale Kurve
+        }
+        
+        // 2. Eckenerkennung für proaktive Verlangsamung
+        bool corner_detected = detectCorner(ranges, angle_min, angle_increment);
+        if (corner_detected)
+        {
+            base_speed = std::min(base_speed, MEDIUM_SPEED);
+        }
+        
+        // 3. Freier Raum vor dem Roboter
+        float front_clearance = getFrontClearance(ranges, angle_min, angle_increment);
+        if (front_clearance > 3.0f)
+        {
+            base_speed = std::min(MAX_LINEAR_SPEED, base_speed * 1.2f); // Boost bei freier Strecke
+        }
+        else if (front_clearance < 1.5f)
+        {
+            base_speed *= 0.7f; // Verlangsamung bei Hindernissen
+        }
+        
+        // 4. Wandabstand berücksichtigen
+        if (wall_distance < DESIRED_WALL_DISTANCE - 0.5f)
+        {
+            base_speed *= 0.8f; // Vorsichtiger bei zu geringem Wandabstand
+        }
+        
+        return std::max(EMERGENCY_SPEED, std::min(MAX_LINEAR_SPEED, base_speed));
+    }
+
+    /**
+     * @brief Erkennt Ecken durch Analyse der Wandkontinuität
+     */
+    bool detectCorner(const std::vector<float> &ranges, float angle_min, float angle_increment)
+    {
+        // Analysiere rechte Seite für Ecken/Diskontinuitäten
+        std::vector<float> right_ranges = getRangesInSector(ranges, -M_PI/2 - 0.3f, -M_PI/2 + 0.3f,
+                                                            angle_min, angle_increment, 0.1f, 8.0f);
+        
+        if (right_ranges.size() < 3) return false;
+        
+        // Suche nach großen Sprüngen in der Entfernung (Ecken)
+        for (size_t i = 1; i < right_ranges.size() - 1; ++i)
+        {
+            float diff1 = std::abs(right_ranges[i] - right_ranges[i-1]);
+            float diff2 = std::abs(right_ranges[i+1] - right_ranges[i]);
+            
+            if (diff1 > 0.5f || diff2 > 0.5f) // Diskontinuität erkannt
+            {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * @brief Berechnet freien Raum vor dem Roboter
+     */
+    float getFrontClearance(const std::vector<float> &ranges, float angle_min, float angle_increment)
+    {
+        std::vector<float> front_ranges = getRangesInSector(ranges, -M_PI/8, M_PI/8,
+                                                           angle_min, angle_increment, 0.1f, 8.0f);
+        
+        return getMinDistance(front_ranges);
+    }
     float calculateWallDistance(const std::vector<float> &ranges,
                                 float angle_min, float angle_increment,
                                 float range_min, float range_max)
@@ -284,20 +375,21 @@ private:
             float left_clearance = getMinDistance(left_ranges);
             float right_clearance = getMinDistance(right_ranges);
 
+            // Aggressivere Ausweichmanöver für schnellere Navigation
             if (left_clearance > right_clearance && left_clearance > 1.0f)
             {
-                linear_vel = 0.3f;
-                angular_vel = 0.6f; // Reduzierte Drehgeschwindigkeit
+                linear_vel = MEDIUM_SPEED;      // Erhöhte Geschwindigkeit
+                angular_vel = 1.0f;             // Schnellere Drehung
             }
             else if (right_clearance > 1.0f)
             {
-                linear_vel = 0.3f;
-                angular_vel = -0.6f;
+                linear_vel = MEDIUM_SPEED;
+                angular_vel = -1.0f;
             }
             else
             {
-                linear_vel = -0.2f;
-                angular_vel = 0.4f;
+                linear_vel = -LOW_SPEED;        // Schnelleres Rückwärtsfahren
+                angular_vel = 0.8f;
             }
             
             // Reset für sauberen Übergang
@@ -322,11 +414,14 @@ private:
 
             angular_vel = -stabilizedPidController(combined_error, dt);
             
-            // Geschwindigkeit basierend auf Lenkbewegung anpassen
-            linear_vel = 0.5f; // Grundgeschwindigkeit
-            if (std::abs(angular_vel) > 0.3f)
+            // Intelligente Geschwindigkeitssteuerung
+            linear_vel = calculateAdaptiveSpeed(angular_vel, wall_distance, msg->ranges,
+                                              msg->angle_min, msg->angle_increment);
+            
+            // Zusätzliche Geschwindigkeitsbegrenzung nur bei extremen Lenkbewegungen
+            if (std::abs(angular_vel) > 0.8f)
             {
-                linear_vel *= (1.0f - std::abs(angular_vel) * 0.5f); // Langsamer bei starken Korrekturen
+                linear_vel *= 0.6f; // Nur bei sehr scharfen Kurven stark verlangsamen
             }
             break;
         }
@@ -353,13 +448,21 @@ private:
             if (min_index != -1)
             {
                 float target_angle = msg->angle_min + min_index * msg->angle_increment;
-                linear_vel = 0.4f;
-                angular_vel = 0.6f * target_angle; // Reduzierte Drehgeschwindigkeit
+                
+                // Schnellere Hindernisnäherung
+                linear_vel = HIGH_SPEED;           // Erhöhte Suchgeschwindigkeit
+                angular_vel = 1.2f * target_angle; // Schnellere Orientierung
+                
+                // Begrenzen bei sehr scharfen Winkeln
+                if (std::abs(target_angle) > M_PI/3)
+                {
+                    linear_vel = MEDIUM_SPEED;
+                }
             }
             else
             {
-                linear_vel = 0.1f;
-                angular_vel = -0.3f;
+                linear_vel = MEDIUM_SPEED;         // Schnellere Standardsuche
+                angular_vel = -0.6f;               // Schnellere Drehung
             }
             
             // Reset für sauberen Übergang
@@ -370,9 +473,9 @@ private:
         }
         }
 
-        // Finale Sicherheitsbegrenzungen
-        linear_vel = std::max(-0.3f, std::min(linear_vel, 0.6f));
-        angular_vel = std::max(-1.0f, std::min(angular_vel, 1.0f));
+        // Finale Sicherheitsbegrenzungen mit höheren Maximalwerten
+        linear_vel = std::max(-0.5f, std::min(linear_vel, MAX_LINEAR_SPEED));
+        angular_vel = std::max(-1.5f, std::min(angular_vel, 1.5f));
 
         // Geschwindigkeitsbefehl senden
         geometry_msgs::msg::Twist cmd_vel_msg;
