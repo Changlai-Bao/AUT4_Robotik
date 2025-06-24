@@ -34,7 +34,8 @@ private:
     {
         SEEKING_OBSTACLE,    // Hindernissuche
         WALL_FOLLOWING,      // Wandverfolgung
-        AVOIDING_OBSTACLE    // Hindernisausweichung
+        AVOIDING_OBSTACLE,   // Hindernisausweichung
+        CORNER_TURNING       // Eckendrehung (neuer Zustand)
     };
 
     // ROS2 Subscriber und Publisher
@@ -46,6 +47,12 @@ private:
     float previous_error_;           // Für D-Anteil (falls benötigt)
     rclcpp::Time previous_time_;
     RobotState current_state_;
+    RobotState previous_state_;      // Vorheriger Zustand für bessere Übergänge
+
+    // Eckenbehandlung
+    rclcpp::Time corner_start_time_; // Zeitpunkt des Eckenbeginns
+    float last_wall_distance_;       // Letzte bekannte Wanddistanz
+    bool wall_lost_;                 // Flag für verlorene Wand
 
     // Glättungsfilter für Winkelberechnung
     std::deque<float> angle_history_;
@@ -71,6 +78,11 @@ private:
     // Adaptive Geschwindigkeitssteuerung
     const float SPEED_ADAPTATION_FACTOR = 0.7f;   // Faktor für Geschwindigkeitsanpassung
     const float CORNER_DETECTION_THRESHOLD = 0.3f; // Schwellwert für Eckenerkennung
+    
+    // Eckenbehandlungsparameter
+    const float WALL_LOST_THRESHOLD = 5.0f;       // Schwellwert für verlorene Wand
+    const float CORNER_TURN_DURATION = 2.0f;      // Maximale Eckendrehzeit in Sekunden
+    const float CORNER_ANGULAR_VELOCITY = 0.8f;   // Drehgeschwindigkeit bei Ecken
 
 public:
     StabilizedWallFollowNode() : Node("stabilized_wall_follow_node")
@@ -88,6 +100,10 @@ public:
         previous_error_ = 0.0f;
         previous_time_ = this->now();
         current_state_ = RobotState::SEEKING_OBSTACLE;
+        previous_state_ = RobotState::SEEKING_OBSTACLE;
+        corner_start_time_ = this->now();
+        last_wall_distance_ = std::numeric_limits<float>::infinity();
+        wall_lost_ = false;
 
         RCLCPP_INFO(this->get_logger(), "Stabilisierter Wall-Follower gestartet.");
     }
@@ -208,8 +224,30 @@ private:
     }
 
     /**
-     * @brief Erkennt Ecken durch Analyse der Wandkontinuität
+     * @brief Verbesserte Eckenerkennung basierend auf Wandverlust
      */
+    bool detectWallLoss(float wall_distance)
+    {
+        // Wand ist verloren, wenn die Distanz plötzlich sehr groß wird
+        if (wall_distance > WALL_LOST_THRESHOLD && last_wall_distance_ < DESIRED_WALL_DISTANCE * 2.0f)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @brief Erkennt das Ende einer Ecke (neue Wand gefunden)
+     */
+    bool detectNewWall(float wall_distance, float wall_angle)
+    {
+        // Neue Wand erkannt, wenn:
+        // 1. Distanz wieder in normalem Bereich
+        // 2. Winkel ist akzeptabel
+        return (wall_distance < DESIRED_WALL_DISTANCE * 2.0f && 
+                !std::isnan(wall_angle) && 
+                std::abs(wall_angle) < M_PI/3);
+    }
     bool detectCorner(const std::vector<float> &ranges, float angle_min, float angle_increment)
     {
         // Analysiere rechte Seite für Ecken/Diskontinuitäten
@@ -341,18 +379,76 @@ private:
                                                  msg->angle_increment, 
                                                  msg->range_min, msg->range_max);
 
-        // Zustandsübergänge
+        // Erweiterte Zustandslogik mit Eckenbehandlung
+        previous_state_ = current_state_;
+        
+        // Zustandsübergänge mit verbesserter Eckenlogik
         if (front_obstacle)
         {
             current_state_ = RobotState::AVOIDING_OBSTACLE;
+            wall_lost_ = false;
+        }
+        else if (current_state_ == RobotState::CORNER_TURNING)
+        {
+            // Prüfe ob Eckendrehung beendet werden kann
+            rclcpp::Time current_time = this->now();
+            double corner_duration = (current_time - corner_start_time_).seconds();
+            
+            if (detectNewWall(wall_distance, wall_angle))
+            {
+                // Neue Wand gefunden - zurück zur normalen Wandverfolgung
+                current_state_ = RobotState::WALL_FOLLOWING;
+                wall_lost_ = false;
+                RCLCPP_INFO(this->get_logger(), "Neue Wand gefunden - Ecke beendet");
+            }
+            else if (corner_duration > CORNER_TURN_DURATION)
+            {
+                // Timeout - zurück zur Hindernissuche
+                current_state_ = RobotState::SEEKING_OBSTACLE;
+                wall_lost_ = false;
+                RCLCPP_WARN(this->get_logger(), "Ecken-Timeout - zurück zur Suche");
+            }
+            // Sonst bleibe im Eckenmodus
         }
         else if (!std::isnan(wall_angle) && wall_distance < 4.0f)
         {
-            current_state_ = RobotState::WALL_FOLLOWING;
+            // Normale Wandverfolgung möglich
+            if (detectWallLoss(wall_distance) && previous_state_ == RobotState::WALL_FOLLOWING)
+            {
+                // Wand verloren - beginne Eckendrehung
+                current_state_ = RobotState::CORNER_TURNING;
+                corner_start_time_ = this->now();
+                wall_lost_ = true;
+                RCLCPP_INFO(this->get_logger(), "Wand verloren - beginne Eckendrehung");
+            }
+            else
+            {
+                current_state_ = RobotState::WALL_FOLLOWING;
+                wall_lost_ = false;
+            }
         }
         else
         {
-            current_state_ = RobotState::SEEKING_OBSTACLE;
+            // Keine Wand erkennbar
+            if (previous_state_ == RobotState::WALL_FOLLOWING)
+            {
+                // Gerade Wandverfolgung verloren - beginne Eckendrehung
+                current_state_ = RobotState::CORNER_TURNING;
+                corner_start_time_ = this->now();
+                wall_lost_ = true;
+                RCLCPP_INFO(this->get_logger(), "Wandverfolgung verloren - beginne Eckendrehung");
+            }
+            else
+            {
+                current_state_ = RobotState::SEEKING_OBSTACLE;
+                wall_lost_ = false;
+            }
+        }
+
+        // Aktualisiere letzte bekannte Wanddistanz
+        if (wall_distance < WALL_LOST_THRESHOLD)
+        {
+            last_wall_distance_ = wall_distance;
         }
 
         float linear_vel = 0.0f;
@@ -360,6 +456,34 @@ private:
 
         switch (current_state_)
         {
+        case RobotState::CORNER_TURNING:
+        {
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
+                                "Zustand: ECKENDREHUNG - Suche neue Wand");
+            
+            // Kontinuierliche Rechtsdrehung bei moderater Geschwindigkeit
+            linear_vel = LOW_SPEED;                    // Langsam vorwärts
+            angular_vel = -CORNER_ANGULAR_VELOCITY;    // Konstante Rechtsdrehung
+            
+            // Überprüfe ob es sicher ist, etwas schneller zu drehen
+            std::vector<float> right_ranges = getRangesInSector(msg->ranges, -M_PI/2, -M_PI/6,
+                                                               msg->angle_min, msg->angle_increment,
+                                                               msg->range_min, msg->range_max);
+            float right_clearance = getMinDistance(right_ranges);
+            
+            if (right_clearance > 2.0f)
+            {
+                // Mehr Freiraum rechts - schneller drehen
+                angular_vel = -1.2f;
+            }
+            
+            // Reset für sauberen Übergang
+            integral_error_ = 0.0f;
+            previous_error_ = 0.0f;
+            angle_history_.clear();
+            break;
+        }
+
         case RobotState::AVOIDING_OBSTACLE:
         {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
