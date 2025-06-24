@@ -32,10 +32,10 @@ private:
     // Roboterzustände für strukturierte Logik
     enum class RobotState
     {
-        SEEKING_OBSTACLE,    // Hindernissuche
-        WALL_FOLLOWING,      // Wandverfolgung
-        AVOIDING_OBSTACLE,   // Hindernisausweichung
-        CORNER_TURNING       // Eckendrehung (neuer Zustand)
+        SEEKING_OBSTACLE,  // Hindernissuche
+        WALL_FOLLOWING,    // Wandverfolgung
+        AVOIDING_OBSTACLE, // Hindernisausweichung
+        CORNER_TURNING     // Eckendrehung (neuer Zustand)
     };
 
     // ROS2 Subscriber und Publisher
@@ -44,10 +44,10 @@ private:
 
     // Regelungsvariablen
     float integral_error_;
-    float previous_error_;           // Für D-Anteil (falls benötigt)
+    float previous_error_; // Für D-Anteil (falls benötigt)
     rclcpp::Time previous_time_;
     RobotState current_state_;
-    RobotState previous_state_;      // Vorheriger Zustand für bessere Übergänge
+    RobotState previous_state_; // Vorheriger Zustand für bessere Übergänge
 
     // Eckenbehandlung
     rclcpp::Time corner_start_time_; // Zeitpunkt des Eckenbeginns
@@ -56,34 +56,33 @@ private:
 
     // Glättungsfilter für Winkelberechnung (reduziert für schnellere Reaktion)
     std::deque<float> angle_history_;
-    static const size_t ANGLE_FILTER_SIZE = 3;  // Reduziert von 5 auf 3
+    static const size_t ANGLE_FILTER_SIZE = 3; // Reduziert von 5 auf 3
 
     // Konfigurierbare Parameter für Geschwindigkeitsoptimierung
-    const float DESIRED_WALL_DISTANCE = 1.3f;     // Gewünschter Wandabstand
-    const float DEADBAND_THRESHOLD = 0.05f;       // Totband für kleine Korrekturen
-    const float MAX_INTEGRAL = 0.8f;              // Begrenzung des I-Anteils
-    
-    // Verbesserte PI-Parameter für schnellere Reaktion
-    const float KP = 1.8f;                        // Erhöhter P-Anteil für schnellere Reaktion
-    const float KI = 0.15f;                       // Leicht reduzierter I-Anteil
-    const float KD = 0.05f;                       // Reduzierter D-Anteil für weniger Dämpfung
+    const float DESIRED_WALL_DISTANCE = 1.5f; // Gewünschter Wandabstand
+    const float DEADBAND_THRESHOLD = 0.05f;   // Totband für kleine Korrekturen
+    const float MAX_INTEGRAL = 0.8f;          // Begrenzung des I-Anteils
 
-    // 高性能速度参数
-    const float MAX_LINEAR_SPEED = 1.5f;          // 大幅提升最大速度
-    const float HIGH_SPEED = 1.2f;                // 高速段提升
-    const float MEDIUM_SPEED = 0.9f;              // 中速段提升
-    const float LOW_SPEED = 0.5f;                 // 低速段也提升
-    const float EMERGENCY_SPEED = 0.2f;           // 紧急情况速度
-    
-    // 更激进的速度控制
-    const float SPEED_ADAPTATION_FACTOR = 0.5f;   // 减少速度衰减因子
-    const float CORNER_DETECTION_THRESHOLD = 0.3f; 
-    
-    // 快速转角参数
-    const float WALL_LOST_THRESHOLD = 5.0f;       
-    const float CORNER_TURN_DURATION = 1.5f;      // 缩短转角超时时间
-    const float CORNER_ANGULAR_VELOCITY = 1.2f;   // 提升转角速度
-    const float FAST_CORNER_ANGULAR_VELOCITY = 1.8f; // 快速转角速度
+    // Verbesserte PI-Parameter für schnellere Reaktion
+    const float KP = 1.8f;  // Erhöhter P-Anteil für schnellere Reaktion
+    const float KI = 0.15f; // Leicht reduzierter I-Anteil
+    const float KD = 0.05f; // Reduzierter D-Anteil für weniger Dämpfung
+
+    // Geschwindigkeitsparameter
+    const float MAX_LINEAR_SPEED = 1.8f; // Maximale Lineargeschwindigkeit
+    const float HIGH_SPEED = 1.8f;       // Maximale Geschwindigkeit
+    const float MEDIUM_SPEED = 1.0f;     // Mittlere Geschwindigkeit
+    const float LOW_SPEED = 0.5f;        // Langsame Geschwindigkeit
+    const float EMERGENCY_SPEED = 0.2f;  // Notfallgeschwindigkeit
+
+    const float SPEED_ADAPTATION_FACTOR = 0.5f;
+    const float CORNER_DETECTION_THRESHOLD = 0.3f;
+
+    // Ecken- und Wandverlustparameter
+    const float WALL_LOST_THRESHOLD = 5.0f;
+    const float CORNER_TURN_DURATION = 1.5f;
+    const float CORNER_ANGULAR_VELOCITY = 1.2f;      // Basis-Drehgeschwindigkeit
+    const float FAST_CORNER_ANGULAR_VELOCITY = 1.8f; // Schnellere Drehgeschwindigkeit
 
 public:
     StabilizedWallFollowNode() : Node("stabilized_wall_follow_node")
@@ -114,12 +113,12 @@ private:
      * @brief Berechnet den geglätteten Winkel zur Wand
      */
     float calculateSmoothedWallAngle(const std::vector<float> &ranges,
-                                    float angle_min, float angle_increment,
-                                    float range_min, float range_max)
+                                     float angle_min, float angle_increment,
+                                     float range_min, float range_max)
     {
         // Zwei Punkte für Wandwinkelberechnung (rechte Wand)
-        float point1_angle = -M_PI / 2;            // -90°
-        float point2_angle = -M_PI / 2 + 0.4f;     // Etwas kleinerer Winkel für Stabilität
+        float point1_angle = -M_PI / 2;        // -90°
+        float point2_angle = -M_PI / 2 + 0.4f; // Etwas kleinerer Winkel für Stabilität
 
         int idx1 = static_cast<int>((point1_angle - angle_min) / angle_increment);
         int idx2 = static_cast<int>((point2_angle - angle_min) / angle_increment);
@@ -151,7 +150,7 @@ private:
         float vector_b_x = x2 - x1;
         float vector_b_y = y2 - y1;
         float magnitude_b = sqrt(vector_b_x * vector_b_x + vector_b_y * vector_b_y);
-        
+
         if (magnitude_b < 1e-6)
         {
             return std::numeric_limits<float>::quiet_NaN();
@@ -180,31 +179,31 @@ private:
     /**
      * @brief Hochperformante Geschwindigkeitsberechnung
      */
-    float calculateAdaptiveSpeed(float angular_velocity, float wall_distance, 
-                                const std::vector<float> &ranges,
-                                float angle_min, float angle_increment)
+    float calculateAdaptiveSpeed(float angular_velocity, float wall_distance,
+                                 const std::vector<float> &ranges,
+                                 float angle_min, float angle_increment)
     {
         // 1. Aggressivere Grundgeschwindigkeit
         float base_speed = HIGH_SPEED;
         float angular_factor = std::abs(angular_velocity);
-        
+
         // Weniger drastische Geschwindigkeitsreduktion
         if (angular_factor > 0.8f)
         {
-            base_speed = MEDIUM_SPEED;  // Mittlere Geschwindigkeit statt langsam
+            base_speed = MEDIUM_SPEED; // Mittlere Geschwindigkeit statt langsam
         }
         else if (angular_factor > 0.4f)
         {
-            base_speed = HIGH_SPEED * 0.9f;  // Nur leichte Reduktion
+            base_speed = HIGH_SPEED * 0.9f; // Nur leichte Reduktion
         }
-        
+
         // 2. Optimierte Eckenerkennung
         bool corner_detected = detectCorner(ranges, angle_min, angle_increment);
         if (corner_detected)
         {
             base_speed = std::min(base_speed, HIGH_SPEED * 0.8f); // Weniger starke Reduktion
         }
-        
+
         // 3. Aggressivere Nutzung des freien Raums
         float front_clearance = getFrontClearance(ranges, angle_min, angle_increment);
         if (front_clearance > 4.0f)
@@ -219,13 +218,13 @@ private:
         {
             base_speed *= 0.8f; // Nur leichte Verlangsamung
         }
-        
+
         // 4. Weniger konservative Wandabstandsbehandlung
         if (wall_distance < DESIRED_WALL_DISTANCE - 0.3f)
         {
             base_speed *= 0.9f; // Nur geringe Reduktion
         }
-        
+
         return std::max(EMERGENCY_SPEED, std::min(MAX_LINEAR_SPEED, base_speed));
     }
 
@@ -250,30 +249,31 @@ private:
         // Neue Wand erkannt, wenn:
         // 1. Distanz wieder in normalem Bereich
         // 2. Winkel ist akzeptabel
-        return (wall_distance < DESIRED_WALL_DISTANCE * 2.0f && 
-                !std::isnan(wall_angle) && 
-                std::abs(wall_angle) < M_PI/3);
+        return (wall_distance < DESIRED_WALL_DISTANCE * 2.0f &&
+                !std::isnan(wall_angle) &&
+                std::abs(wall_angle) < M_PI / 3);
     }
     bool detectCorner(const std::vector<float> &ranges, float angle_min, float angle_increment)
     {
         // Analysiere rechte Seite für Ecken/Diskontinuitäten
-        std::vector<float> right_ranges = getRangesInSector(ranges, -M_PI/2 - 0.3f, -M_PI/2 + 0.3f,
+        std::vector<float> right_ranges = getRangesInSector(ranges, -M_PI / 2 - 0.3f, -M_PI / 2 + 0.3f,
                                                             angle_min, angle_increment, 0.1f, 8.0f);
-        
-        if (right_ranges.size() < 3) return false;
-        
+
+        if (right_ranges.size() < 3)
+            return false;
+
         // Suche nach großen Sprüngen in der Entfernung (Ecken)
         for (size_t i = 1; i < right_ranges.size() - 1; ++i)
         {
-            float diff1 = std::abs(right_ranges[i] - right_ranges[i-1]);
-            float diff2 = std::abs(right_ranges[i+1] - right_ranges[i]);
-            
+            float diff1 = std::abs(right_ranges[i] - right_ranges[i - 1]);
+            float diff2 = std::abs(right_ranges[i + 1] - right_ranges[i]);
+
             if (diff1 > 0.5f || diff2 > 0.5f) // Diskontinuität erkannt
             {
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -282,9 +282,9 @@ private:
      */
     float getFrontClearance(const std::vector<float> &ranges, float angle_min, float angle_increment)
     {
-        std::vector<float> front_ranges = getRangesInSector(ranges, -M_PI/8, M_PI/8,
-                                                           angle_min, angle_increment, 0.1f, 8.0f);
-        
+        std::vector<float> front_ranges = getRangesInSector(ranges, -M_PI / 8, M_PI / 8,
+                                                            angle_min, angle_increment, 0.1f, 8.0f);
+
         return getMinDistance(front_ranges);
     }
     float calculateWallDistance(const std::vector<float> &ranges,
@@ -321,7 +321,7 @@ private:
 
         // Integralfehler aktualisieren
         integral_error_ += angle_error * dt;
-        
+
         // Anti-Windup: Begrenze Integralfehler
         integral_error_ = std::max(-MAX_INTEGRAL, std::min(MAX_INTEGRAL, integral_error_));
 
@@ -331,7 +331,7 @@ private:
 
         // PID-Regelung
         float control_output = KP * angle_error + KI * integral_error_ + KD * derivative_error;
-        
+
         // Ausgangsbegrenzung
         return std::max(-1.2f, std::min(1.2f, control_output));
     }
@@ -372,22 +372,23 @@ private:
     {
         rclcpp::Time current_time = this->now();
         float dt = (current_time - previous_time_).seconds();
-        if (dt <= 0.0f || dt > 0.1f) dt = 0.05f;
+        if (dt <= 0.0f || dt > 0.1f)
+            dt = 0.05f;
         previous_time_ = current_time;
 
-        float wall_angle = calculateSmoothedWallAngle(msg->ranges, msg->angle_min, 
-                                                     msg->angle_increment, 
-                                                     msg->range_min, msg->range_max);
-        float wall_distance = calculateWallDistance(msg->ranges, msg->angle_min, 
-                                                   msg->angle_increment, 
-                                                   msg->range_min, msg->range_max);
-        bool front_obstacle = detectFrontObstacle(msg->ranges, msg->angle_min, 
-                                                 msg->angle_increment, 
-                                                 msg->range_min, msg->range_max);
+        float wall_angle = calculateSmoothedWallAngle(msg->ranges, msg->angle_min,
+                                                      msg->angle_increment,
+                                                      msg->range_min, msg->range_max);
+        float wall_distance = calculateWallDistance(msg->ranges, msg->angle_min,
+                                                    msg->angle_increment,
+                                                    msg->range_min, msg->range_max);
+        bool front_obstacle = detectFrontObstacle(msg->ranges, msg->angle_min,
+                                                  msg->angle_increment,
+                                                  msg->range_min, msg->range_max);
 
         // Erweiterte Zustandslogik mit Eckenbehandlung
         previous_state_ = current_state_;
-        
+
         // Zustandsübergänge mit verbesserter Eckenlogik
         if (front_obstacle)
         {
@@ -399,7 +400,7 @@ private:
             // Prüfe ob Eckendrehung beendet werden kann
             rclcpp::Time current_time = this->now();
             double corner_duration = (current_time - corner_start_time_).seconds();
-            
+
             if (detectNewWall(wall_distance, wall_angle))
             {
                 // Neue Wand gefunden - zurück zur normalen Wandverfolgung
@@ -465,29 +466,29 @@ private:
         case RobotState::CORNER_TURNING:
         {
             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-                                "Zustand: ECKENDREHUNG - Suche neue Wand");
-            
+                                 "Zustand: ECKENDREHUNG - Suche neue Wand");
+
             // Aggressivere Eckendrehung
-            linear_vel = MEDIUM_SPEED;                     // Schneller vorwärts in Ecken
-            angular_vel = -CORNER_ANGULAR_VELOCITY;        // Basis-Drehgeschwindigkeit
-            
+            linear_vel = MEDIUM_SPEED;              // Schneller vorwärts in Ecken
+            angular_vel = -CORNER_ANGULAR_VELOCITY; // Basis-Drehgeschwindigkeit
+
             // Überprüfe Freiraum für noch schnellere Drehung
-            std::vector<float> right_ranges = getRangesInSector(msg->ranges, -M_PI/2, -M_PI/6,
-                                                               msg->angle_min, msg->angle_increment,
-                                                               msg->range_min, msg->range_max);
+            std::vector<float> right_ranges = getRangesInSector(msg->ranges, -M_PI / 2, -M_PI / 6,
+                                                                msg->angle_min, msg->angle_increment,
+                                                                msg->range_min, msg->range_max);
             float right_clearance = getMinDistance(right_ranges);
-            
+
             if (right_clearance > 3.0f)
             {
                 // Viel Freiraum - maximale Drehgeschwindigkeit
                 angular_vel = -FAST_CORNER_ANGULAR_VELOCITY;
-                linear_vel = HIGH_SPEED * 0.8f;  // Auch schneller vorwärts
+                linear_vel = HIGH_SPEED * 0.8f; // Auch schneller vorwärts
             }
             else if (right_clearance > 1.5f)
             {
-                angular_vel = -1.5f;  // Mittlere erhöhte Drehgeschwindigkeit
+                angular_vel = -1.5f; // Mittlere erhöhte Drehgeschwindigkeit
             }
-            
+
             // Reset für sauberen Übergang
             integral_error_ = 0.0f;
             previous_error_ = 0.0f;
@@ -497,24 +498,24 @@ private:
 
         case RobotState::AVOIDING_OBSTACLE:
         {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                                "Zustand: HINDERNISAUSWEICHUNG");
-            
-            std::vector<float> left_ranges = getRangesInSector(msg->ranges, M_PI / 6, M_PI / 2, 
-                                                              msg->angle_min, msg->angle_increment, 
-                                                              msg->range_min, msg->range_max);
-            std::vector<float> right_ranges = getRangesInSector(msg->ranges, -M_PI / 2, -M_PI / 6, 
-                                                               msg->angle_min, msg->angle_increment, 
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "Zustand: HINDERNISAUSWEICHUNG");
+
+            std::vector<float> left_ranges = getRangesInSector(msg->ranges, M_PI / 6, M_PI / 2,
+                                                               msg->angle_min, msg->angle_increment,
                                                                msg->range_min, msg->range_max);
-            
+            std::vector<float> right_ranges = getRangesInSector(msg->ranges, -M_PI / 2, -M_PI / 6,
+                                                                msg->angle_min, msg->angle_increment,
+                                                                msg->range_min, msg->range_max);
+
             float left_clearance = getMinDistance(left_ranges);
             float right_clearance = getMinDistance(right_ranges);
 
             // Sehr aggressive Ausweichmanöver
             if (left_clearance > right_clearance && left_clearance > 1.0f)
             {
-                linear_vel = HIGH_SPEED * 0.8f;    // Hohe Geschwindigkeit
-                angular_vel = 1.5f;                // Sehr schnelle Drehung
+                linear_vel = HIGH_SPEED * 0.8f; // Hohe Geschwindigkeit
+                angular_vel = 1.5f;             // Sehr schnelle Drehung
             }
             else if (right_clearance > 1.0f)
             {
@@ -523,10 +524,10 @@ private:
             }
             else
             {
-                linear_vel = -MEDIUM_SPEED;         // Schnelles Rückwärtsfahren
+                linear_vel = -MEDIUM_SPEED; // Schnelles Rückwärtsfahren
                 angular_vel = 1.2f;
             }
-            
+
             // Reset für sauberen Übergang
             integral_error_ = 0.0f;
             previous_error_ = 0.0f;
@@ -536,23 +537,23 @@ private:
 
         case RobotState::WALL_FOLLOWING:
         {
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, 
-                                "Zustand: WANDVERFOLGUNG - Winkel: %.2f°, Distanz: %.2fm", 
-                                wall_angle * 180.0 / M_PI, wall_distance);
-            
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                 "Zustand: WANDVERFOLGUNG - Winkel: %.2f°, Distanz: %.2fm",
+                                 wall_angle * 180.0 / M_PI, wall_distance);
+
             // Winkel- und Distanzfehler kombinieren
             float angle_error = wall_angle - 0.0f;
-            
+
             // Distanzkorrektur hinzufügen
             float distance_error = wall_distance - DESIRED_WALL_DISTANCE;
             float combined_error = angle_error + 0.2f * distance_error; // Reduzierte Distanzgewichtung
 
             angular_vel = -stabilizedPidController(combined_error, dt);
-            
+
             // Hochperformante Geschwindigkeitssteuerung
             linear_vel = calculateAdaptiveSpeed(angular_vel, wall_distance, msg->ranges,
-                                              msg->angle_min, msg->angle_increment);
-            
+                                                msg->angle_min, msg->angle_increment);
+
             // Weniger restriktive Geschwindigkeitsbegrenzung
             if (std::abs(angular_vel) > 1.0f)
             {
@@ -563,8 +564,8 @@ private:
 
         case RobotState::SEEKING_OBSTACLE:
         {
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                                "Zustand: HINDERNISSUCHE");
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "Zustand: HINDERNISSUCHE");
 
             // Finde nächstes Hindernis
             float min_range = std::numeric_limits<float>::infinity();
@@ -583,23 +584,23 @@ private:
             if (min_index != -1)
             {
                 float target_angle = msg->angle_min + min_index * msg->angle_increment;
-                
+
                 // Sehr schnelle Hindernisnäherung
-                linear_vel = HIGH_SPEED;               // Hohe Suchgeschwindigkeit
-                angular_vel = 1.5f * target_angle;     // Schnelle Orientierung
-                
+                linear_vel = HIGH_SPEED;           // Hohe Suchgeschwindigkeit
+                angular_vel = 1.5f * target_angle; // Schnelle Orientierung
+
                 // Weniger restriktive Winkelbegrenzung
-                if (std::abs(target_angle) > M_PI/2)
+                if (std::abs(target_angle) > M_PI / 2)
                 {
-                    linear_vel = MEDIUM_SPEED;  // Nur bei sehr extremen Winkeln verlangsamen
+                    linear_vel = MEDIUM_SPEED; // Nur bei sehr extremen Winkeln verlangsamen
                 }
             }
             else
             {
-                linear_vel = HIGH_SPEED * 0.7f;        // Schnelle Standardsuche
-                angular_vel = -1.0f;                   // Schnelle Drehung
+                linear_vel = HIGH_SPEED * 0.7f; // Schnelle Standardsuche
+                angular_vel = -1.0f;            // Schnelle Drehung
             }
-            
+
             // Reset für sauberen Übergang
             integral_error_ = 0.0f;
             previous_error_ = 0.0f;
@@ -634,7 +635,7 @@ private:
             if (current_angle >= angle_min && current_angle <= angle_max)
             {
                 float range = ranges[i];
-                if (range >= range_min && range <= range_max && 
+                if (range >= range_min && range <= range_max &&
                     !std::isnan(range) && !std::isinf(range))
                 {
                     sector_ranges.push_back(range);
