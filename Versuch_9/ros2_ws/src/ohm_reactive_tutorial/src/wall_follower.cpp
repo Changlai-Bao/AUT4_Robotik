@@ -1,12 +1,12 @@
 /**
- * @file stable_wall_follower.cpp      
- * @author Prof. Dr. Christian Pfitzner (christian.pfitzner@th-nuernberg.de)
- * @brief Stabiler Wall-Following Algorithmus mit verbesserter Kontrolle
- * @version 0.3
+ * @file optimized_wall_follower.cpp
+ * @author Prof. Dr. Christian Pfitzner (christian.pfitzner@th-nuernberg.de) / Gemini
+ * @brief Optimierter Wall-Following Algorithmus, der proaktiv Hindernisse sucht.
+ * @version 0.5 (Fehlerbehebung)
  * @date 2024-06-24
- * 
+ *
  * @copyright Copyright (c) 2024
- * 
+ *
  */
 
 #include "rclcpp/rclcpp.hpp"
@@ -14,20 +14,40 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 /**
- * @class StableWallFollowNode
- * @brief Stabiler Wall-Following mit reduzierter Zustandskomplexität
+ * @class OptimizedWallFollowNode
+ * @brief Ein optimierter Wall-Follower, der proaktiv das nächste Hindernis ansteuert,
+ * anstatt blind nach einer Wand zu suchen.
  */
-class StableWallFollowNode : public rclcpp::Node
+class OptimizedWallFollowNode : public rclcpp::Node
 {
+private:
+    // Definition der Roboterzustände für eine klarere Logik
+    enum class RobotState
+    {
+        SEEKING_OBSTACLE,
+        WALL_FOLLOWING,
+        AVOIDING_OBSTACLE
+    };
+
+    // Member-Variablen
+    // KORREKTUR: Der korrekte Nachrichtentyp ist 'LaserScan' (CamelCase) und nicht 'Laser_scan'.
+    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_subscriber_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_publisher_;
+
+    float integral_error_;
+    rclcpp::Time previous_time_;
+    RobotState current_state_; // Variable zum Speichern des aktuellen Zustands
+
 public:
-    StableWallFollowNode() : Node("stable_wall_follow_node")
+    OptimizedWallFollowNode() : Node("wall_follow_node")
     {
         // Subscriber für Lidar-Daten
         lidar_subscriber_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
             "/robot1/laser", 10,
-            std::bind(&StableWallFollowNode::lidarCallback, this, std::placeholders::_1));
+            std::bind(&OptimizedWallFollowNode::lidarCallback, this, std::placeholders::_1));
 
         // Publisher für Geschwindigkeitsbefehle
         cmd_vel_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/robot1/cmd_vel", 10);
@@ -35,10 +55,9 @@ public:
         // Initialisierung
         integral_error_ = 0.0f;
         previous_time_ = this->now();
-        follow_right_wall_ = true;  // Standardmäßig rechte Wand folgen
-        state_change_timer_ = 0.0f;
-        
-        RCLCPP_INFO(this->get_logger(), "Stabiler Wall-Follower gestartet");
+        current_state_ = RobotState::SEEKING_OBSTACLE; // Start im optimierten Suchmodus
+
+        RCLCPP_INFO(this->get_logger(), "Optimierter Wall-Follower gestartet. Suche nächstes Hindernis.");
     }
 
 private:
@@ -49,7 +68,7 @@ private:
                              float angle_min, float angle_increment,
                              float range_min, float range_max)
     {
-        // Fixe Punkte für rechte Wand (wie im Original)
+        // Fixe Punkte für rechte Wand
         float point1_angle = -M_PI / 2;       // -90°
         float point2_angle = -M_PI / 2 + 0.5; // -60°
 
@@ -57,7 +76,8 @@ private:
         int idx2 = static_cast<int>((point2_angle - angle_min) / angle_increment);
 
         if (idx1 < 0 || idx1 >= static_cast<int>(ranges.size()) ||
-            idx2 < 0 || idx2 >= static_cast<int>(ranges.size())) {
+            idx2 < 0 || idx2 >= static_cast<int>(ranges.size()))
+        {
             return std::numeric_limits<float>::quiet_NaN();
         }
 
@@ -65,7 +85,8 @@ private:
         float range2 = ranges[idx2];
 
         if (range1 < range_min || range1 > range_max || std::isnan(range1) || std::isinf(range1) ||
-            range2 < range_min || range2 > range_max || std::isnan(range2) || std::isinf(range2)) {
+            range2 < range_min || range2 > range_max || std::isnan(range2) || std::isinf(range2))
+        {
             return std::numeric_limits<float>::quiet_NaN();
         }
 
@@ -82,7 +103,8 @@ private:
         float vector_b_y = y2 - y1;
 
         float magnitude_b = sqrt(vector_b_x * vector_b_x + vector_b_y * vector_b_y);
-        if (magnitude_b < 1e-6) {
+        if (magnitude_b < 1e-6)
+        {
             return std::numeric_limits<float>::quiet_NaN();
         }
 
@@ -103,12 +125,14 @@ private:
         float wall_angle = -M_PI / 2; // -90° für rechte Wand
         int idx = static_cast<int>((wall_angle - angle_min) / angle_increment);
 
-        if (idx < 0 || idx >= static_cast<int>(ranges.size())) {
+        if (idx < 0 || idx >= static_cast<int>(ranges.size()))
+        {
             return std::numeric_limits<float>::infinity();
         }
 
         float range = ranges[idx];
-        if (range < range_min || range > range_max || std::isnan(range) || std::isinf(range)) {
+        if (range < range_min || range > range_max || std::isnan(range) || std::isinf(range))
+        {
             return std::numeric_limits<float>::infinity();
         }
 
@@ -120,19 +144,14 @@ private:
      */
     float stablePiController(float angle_error, float dt)
     {
-        // Konservativere Parameter für Stabilität
-        float kp = 1.5f;  // Reduziert von 2.0f
-        float ki = 0.3f;  // Reduziert von 0.5f
+        float kp = 1.5f;
+        float ki = 0.3f;
 
-        // Integralterm mit Anti-Windup
         integral_error_ += angle_error * dt;
         float max_integral = 1.0f;
         integral_error_ = std::max(-max_integral, std::min(max_integral, integral_error_));
 
-        // PI-Ausgabe
         float control_output = kp * angle_error + ki * integral_error_;
-        
-        // Begrenze Ausgabe für Stabilität
         return std::max(-1.5f, std::min(1.5f, control_output));
     }
 
@@ -140,133 +159,162 @@ private:
      * @brief Erkennt Hindernisse mit Hysterese
      */
     bool detectFrontObstacle(const std::vector<float> &ranges,
-                            float angle_min, float angle_increment,
-                            float range_min, float range_max)
+                             float angle_min, float angle_increment,
+                             float range_min, float range_max)
     {
         std::vector<float> front_ranges = getRangesInSector(
-            ranges, -M_PI/6, M_PI/6,  // ±30° Frontbereich
+            ranges, -M_PI / 6, M_PI / 6,
             angle_min, angle_increment, range_min, range_max);
-        
+
         float min_front_distance = getMinDistance(front_ranges);
-        
-        // Hysterese zur Vermeidung von Flackern
+
         static bool obstacle_detected = false;
-        float threshold_detect = 1.8f;   // Schwelle für Erkennung
-        float threshold_clear = 2.2f;    // Schwelle für Freigabe
-        
-        if (!obstacle_detected && min_front_distance < threshold_detect) {
+        float threshold_detect = 1.8f;
+        float threshold_clear = 2.2f;
+
+        if (!obstacle_detected && min_front_distance < threshold_detect)
+        {
             obstacle_detected = true;
-        } else if (obstacle_detected && min_front_distance > threshold_clear) {
+        }
+        else if (obstacle_detected && min_front_distance > threshold_clear)
+        {
             obstacle_detected = false;
         }
-        
+
         return obstacle_detected;
     }
 
     /**
-     * @brief Hauptcallback mit vereinfachter Logik
+     * @brief Hauptcallback mit Zustandslogik
      */
     void lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
     {
-        // Zeitberechnung
         rclcpp::Time current_time = this->now();
         float dt = (current_time - previous_time_).seconds();
-        if (dt <= 0.0f || dt > 0.1f) dt = 0.05f;
+        if (dt <= 0.0f || dt > 0.1f)
+            dt = 0.05f;
         previous_time_ = current_time;
 
-        // Inkrementiere State-Change Timer
-        state_change_timer_ += dt;
+        float wall_angle = calculateWallAngle(msg->ranges, msg->angle_min, msg->angle_increment, msg->range_min, msg->range_max);
+        float wall_distance = calculateWallDistance(msg->ranges, msg->angle_min, msg->angle_increment, msg->range_min, msg->range_max);
+        bool front_obstacle = detectFrontObstacle(msg->ranges, msg->angle_min, msg->angle_increment, msg->range_min, msg->range_max);
 
-        // Sensordaten analysieren
-        float wall_angle = calculateWallAngle(msg->ranges, msg->angle_min, msg->angle_increment,
-                                            msg->range_min, msg->range_max);
-        float wall_distance = calculateWallDistance(msg->ranges, msg->angle_min, msg->angle_increment,
-                                                  msg->range_min, msg->range_max);
-        bool front_obstacle = detectFrontObstacle(msg->ranges, msg->angle_min, msg->angle_increment,
-                                                 msg->range_min, msg->range_max);
+        // Zustandsübergänge bestimmen
+        if (front_obstacle)
+        {
+            current_state_ = RobotState::AVOIDING_OBSTACLE;
+        }
+        else if (!std::isnan(wall_angle) && wall_distance < 4.0f)
+        {
+            current_state_ = RobotState::WALL_FOLLOWING;
+        }
+        else
+        {
+            current_state_ = RobotState::SEEKING_OBSTACLE;
+        }
 
-        // Standardwerte
         float linear_vel = 0.0f;
         float angular_vel = 0.0f;
 
-        if (front_obstacle) {
-            // **HINDERNISVERMEIDUNG** - Einfache aber effektive Strategie
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                "Hindernis erkannt - weiche aus");
-            
-            // Prüfe verfügbaren Platz links und rechts
-            std::vector<float> left_ranges = getRangesInSector(
-                msg->ranges, M_PI/6, M_PI/2, msg->angle_min, msg->angle_increment, 
-                msg->range_min, msg->range_max);
-            std::vector<float> right_ranges = getRangesInSector(
-                msg->ranges, -M_PI/2, -M_PI/6, msg->angle_min, msg->angle_increment,
-                msg->range_min, msg->range_max);
-
+        switch (current_state_)
+        {
+        case RobotState::AVOIDING_OBSTACLE:
+        {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Zustand: HINDERNISVERMEIDUNG");
+            std::vector<float> left_ranges = getRangesInSector(msg->ranges, M_PI / 6, M_PI / 2, msg->angle_min, msg->angle_increment, msg->range_min, msg->range_max);
+            std::vector<float> right_ranges = getRangesInSector(msg->ranges, -M_PI / 2, -M_PI / 6, msg->angle_min, msg->angle_increment, msg->range_min, msg->range_max);
             float left_clearance = getMinDistance(left_ranges);
             float right_clearance = getMinDistance(right_ranges);
 
-            // Wähle Richtung mit mehr Platz
-            if (left_clearance > right_clearance && left_clearance > 1.0f) {
-                // Links ausweichen
+            if (left_clearance > right_clearance && left_clearance > 1.0f)
+            {
                 linear_vel = 0.3f;
-                angular_vel = 0.8f;  // Links drehen
-            } else if (right_clearance > 1.0f) {
-                // Rechts ausweichen
+                angular_vel = 0.8f; // Links ausweichen
+            }
+            else if (right_clearance > 1.0f)
+            {
                 linear_vel = 0.3f;
-                angular_vel = -0.8f; // Rechts drehen
-            } else {
-                // Notfall: Rückwärts
+                angular_vel = -0.8f; // Rechts ausweichen
+            }
+            else
+            {
                 linear_vel = -0.2f;
-                angular_vel = 0.5f;
+                angular_vel = 0.5f; // Notfall: Rückwärts
             }
-
-            // Reset Integralterm bei Hindernisvermeidung
             integral_error_ = 0.0f;
+            break;
+        }
 
-        } else if (!std::isnan(wall_angle) && !std::isinf(wall_distance) && wall_distance < 4.0f) {
-            // **NORMALE WANDVERFOLGUNG**
+        case RobotState::WALL_FOLLOWING:
+        {
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Zustand: WANDVERFOLGUNG - Winkel: %.2f°, Distanz: %.2fm", wall_angle * 180.0 / M_PI, wall_distance);
             float desired_wall_distance = 1.3f;
-            float desired_wall_angle = 0.0f;
+            float angle_error = wall_angle - 0.0f; // Gewünschter Winkel ist 0
 
-            float angle_error = wall_angle - desired_wall_angle;
             float distance_factor = 1.0f;
-
-            // Distanzkorrektur nur bei größeren Abweichungen
-            if (wall_distance < desired_wall_distance - 0.3f) {
-                distance_factor = 1.2f;  // Leicht weg von der Wand
-            } else if (wall_distance > desired_wall_distance + 0.3f) {
-                distance_factor = 0.8f;  // Leicht zur Wand hin
-            }
+            if (wall_distance < desired_wall_distance - 0.3f)
+                distance_factor = 1.2f;
+            else if (wall_distance > desired_wall_distance + 0.3f)
+                distance_factor = 0.8f;
 
             angular_vel = -stablePiController(angle_error, dt) * distance_factor;
-            linear_vel = 0.5f;
+            linear_vel = 0.6f; // Etwas schneller auf geraden Strecken
 
-            // Reduziere Geschwindigkeit bei starken Korrekturen
-            if (std::abs(angular_vel) > 0.4f) {
+            if (std::abs(angular_vel) > 0.4f)
+            {
                 linear_vel *= 0.7f;
             }
+            break;
+        }
 
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                "Wandverfolgung - Winkel: %.2f°, Distanz: %.2fm, ω: %.2f",
-                wall_angle * 180.0 / M_PI, wall_distance, angular_vel);
+        case RobotState::SEEKING_OBSTACLE:
+        {
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Zustand: HINDERNISSUCHE");
 
-        } else {
-            // **WANDSUCHE** - Langsam vorwärts und nach rechts schauen
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                                "Suche Wand - Distanz: %.2fm", wall_distance);
-            
-            linear_vel = 0.3f;
-            angular_vel = -0.3f;  // Leicht nach rechts drehen
-            
-            // Reset Integralterm bei Wandsuche
+            // *** OPTIMIERTE LOGIK START ***
+            float min_range = std::numeric_limits<float>::infinity();
+            int min_index = -1;
+
+            // Finde den nächsten Punkt im gesamten Scanbereich
+            for (size_t i = 0; i < msg->ranges.size(); ++i)
+            {
+                float range = msg->ranges[i];
+                if (range >= msg->range_min && range < min_range)
+                {
+                    min_range = range;
+                    min_index = i;
+                }
+            }
+
+            if (min_index != -1)
+            {
+                // Berechne den Winkel zum nächsten Punkt
+                float target_angle = msg->angle_min + min_index * msg->angle_increment;
+
+                // Steuere auf das Hindernis zu
+                linear_vel = 0.4f;                 // Zielgerichtet vorwärts fahren
+                angular_vel = 0.8f * target_angle; // Proportionale Regelung zur Ausrichtung
+
+                RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                     "Nächstes Hindernis bei %.2fm und %.2f rad gefunden. Steuere darauf zu.", min_range, target_angle);
+            }
+            else
+            {
+                // Fallback, falls keine Daten vorhanden sind (sehr unwahrscheinlich)
+                linear_vel = 0.1f;
+                angular_vel = -0.3f;
+            }
+            // *** OPTIMIERTE LOGIK ENDE ***
+
             integral_error_ = 0.0f;
+            break;
+        }
         }
 
         // Sicherheitsbegrenzungen
-        linear_vel = std::max(-0.3f, std::min(linear_vel, 0.6f));
+        linear_vel = std::max(-0.3f, std::min(linear_vel, 0.7f));
         angular_vel = std::max(-1.5f, std::min(angular_vel, 1.5f));
 
-        // Bewegungsbefehl senden
         geometry_msgs::msg::Twist cmd_vel_msg;
         cmd_vel_msg.linear.x = linear_vel;
         cmd_vel_msg.angular.z = angular_vel;
@@ -274,7 +322,7 @@ private:
     }
 
     /**
-     * @brief Hilfsfunktionen (unverändert)
+     * @brief Hilfsfunktionen
      */
     std::vector<float> getRangesInSector(const std::vector<float> &ranges,
                                          float angle_min, float angle_max,
@@ -282,44 +330,35 @@ private:
                                          float range_min, float range_max)
     {
         std::vector<float> sector_ranges;
-
-        for (size_t i = 0; i < ranges.size(); ++i) {
+        for (size_t i = 0; i < ranges.size(); ++i)
+        {
             float current_angle = scan_angle_min + i * scan_angle_increment;
-
-            if (current_angle >= angle_min && current_angle <= angle_max) {
+            if (current_angle >= angle_min && current_angle <= angle_max)
+            {
                 float range = ranges[i];
-                if (range >= range_min && range <= range_max &&
-                    !std::isnan(range) && !std::isinf(range)) {
+                if (range >= range_min && range <= range_max && !std::isnan(range) && !std::isinf(range))
+                {
                     sector_ranges.push_back(range);
                 }
             }
         }
-
         return sector_ranges;
     }
 
     float getMinDistance(const std::vector<float> &ranges)
     {
-        if (ranges.empty()) {
+        if (ranges.empty())
+        {
             return std::numeric_limits<float>::infinity();
         }
         return *std::min_element(ranges.begin(), ranges.end());
     }
-
-    // Member-Variablen
-    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_subscriber_;
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_publisher_;
-    
-    float integral_error_;
-    rclcpp::Time previous_time_;
-    bool follow_right_wall_;
-    float state_change_timer_;
 };
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<StableWallFollowNode>();
+    auto node = std::make_shared<OptimizedWallFollowNode>();
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
